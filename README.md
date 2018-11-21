@@ -77,23 +77,28 @@ Validators are incentivized to stay online and contribute to the bridge's securi
 - how to proof validator missing tx
 
 ## Home Bridge Implementation
-The home bridge will be written in Solidity and ran on EVM, the implemention of which would closely ressemble that of Parity Bridge <here>.
+The home bridge will be written in Solidity and ran on EVM, the implemention of which would closely ressemble that of Parity Bridge.
 
-The home bridge will follow the following interface:
+The home bridge will have the following interface:
 - `transferToForeign(bytes homeTokenAddress, address recipient, uint amount)`
-- `TransferToForeign(...)`
-- `TransferFromForeign(...)`
+- `event TransferToForeign (address token, address recipient, uint256 value)`
+- `event TransferFromForeign (address token, address recipient, uint256 value, bytes32 transactionHash);`
 
-The HomeToken (pegged token used on home chain to represent foreign token) will be a Mintable and Burnable token <openzeppelin>. This allows the token to be burned on transfer outs (to foreign), and minting of new tokens to recipient on transfer in (from foreign), keeping the total balance of the token supply static.
+Apps or contract could call `transferToForeign` for making cross-chain transfers, and listen on `TransferToForeign` and `TransferFromForeign` for transfer results.
 
-- bridge contracts
+The pegged token used on home chain to represent foreign token aka HomeToken will be a [Mintable](https://github.com/OpenZeppelin/openzeppelin-solidity/blob/v1.12.0/contracts/token/ERC20/MintableToken.sol) and [Burnable](https://github.com/OpenZeppelin/openzeppelin-solidity/blob/v1.12.0/contracts/token/ERC20/BurnableToken.sol) ERC20 token. The mintable and burnable properties or the token allows easy management of the pegged token. It can be transfered to the home bridge and destoryed on transfer outs (to foreign), and created and sent to recipient on transfer ins (from foreign).
 
-## Foreign Bridge Implementation for EVM Based Chains
-The Foreign bridge can be implemented via smart contracts in Solidity. Using EVENTs, validators can efficiently be notified of incoming transfer requests from both side of the bridge. Messages relayed by the validators into the bridge contracts are signed with elliptic curve digital signature (ECDSA) and validated on-chain using *ecrecover*.
+- home bridge will need to verify validator signatures, store past tx messages, and perform token transfers.
+
+## Foreign Bridge implementation
+- One bridge pair per chain
+
+### Foreign Bridge Implementation for EVM Based Chains
+The EVM based foreign-bridge can be implemented via smart contracts in Solidity. Using EVENTs, validators can efficiently be notified of incoming transfer requests from both side of the bridge. Messages relayed by the validators into the bridge contracts are signed with elliptic curve digital signature (ECDSA) and validated on-chain using *ecrecover*.
 
 In this model, bridge validator nodes would have to do little other than listen for events, sign messages and send transactions bridge contracts. To receive the events from and get transactions actually routed onto the foreign and home chains, we assume either validators themselves would also reside on the respective networks (i.e running their own full nodes) or, utilize public node services (such as Infura [8] for the Ethereum network). The latter while being a more lightweight method, involves a trust factor in the public node provider.
 
-## Foreign Bridge Implementation for BTC Based Chains
+### Foreign Bridge Implementation for BTC Based Chains
 The challenge with Bitcoin is how the deposits can be securely controlled from a rotating validator set. Unlike Ethereum which is able to make arbitrary decisions based upon combinations of signatures, Bitcoin is substantially more limited, with most clients accepting only multisignature transactions with a maximum of 3 parties. Extending this to tens, or indeed thousands as might ultimately be desired, it is impossible under the current protocol. One option is to alter the Bitcoin protocol to enable such functionality, however so-called “hard forks” in the Bitcoin world are difficult to arrange judging by recent attempts. Another alternative is to use threshold signatures, cryptographic schemes to allow a singly identifiable public key to be effectively controlled by multiple secret “parts”, some or all of which must be utilised to create a valid signature. Unfortunately, threshold signatures compatible with Bitcoin’s ECDSA are computationally expensive to create and of polynomial complexity. Other schemes such a Schnorr signatures provide far lower costs, however the timeline on which they may be introduced into the Bitcoin protocol is uncertain.
 
 Since the ultimate security of the deposits rests with a number of bonded validators, one other option is to reduce the multi-signature key-holders to only a heavily bonded subset of the total validators such that threshold signatures become feasible (or, at worst, Bitcoin’s native multi-signature is possible). We can achieve this using a M-of-N P2SH multisignature address according to BIP-13 [9]. The Bitcoin reference implementation has validations rules limiting the P2SH redeem script to be at most 520 bytes. The redeem script is of the format:
@@ -104,5 +109,5 @@ It follows that the length of all public keys together plus the number of public
 
 This of course reduces the total amount of bonds that could be deducted in reparations should the validators behave illegally, however this is a graceful degradation, simply setting an upper limit of the amount of funds that can securely run between the two networks (or indeed, on the % losses should an attack from the validators succeed).
 
-## Foreign Bridge Implementation for EOS/DAGs
+### Foreign Bridge Implementation for EOS/DAGs
 - To be continued
