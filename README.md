@@ -51,7 +51,7 @@ Example Foreign -> Home Transfer Flow:
   - *Cforeign* - coin address on foreign
   - *T* - transfer amount
   - *R* - recipient address on home
-2. Validator queries and find a new incoming transaction on the address *Bforeign* on foreign chain. 
+2. Validator queries and find a new incoming transaction on the address *Bforeign* on foreign chain.
 3. Validators (1 to N) send message to the home bridge at address *Bhome* to relay the transfer with the following parameters:
   - *Cforeign* - coin address on foreign
   - *R* - recipient address on home.
@@ -61,7 +61,7 @@ Example Foreign -> Home Transfer Flow:
 4. The home bridge receives the incoming message, verifies validator signature and keeps track of the signatures collected from validators. When more than N/2 validator signatures are collected for a given *TX* then *T* amount of *Chome* (pegged home representation of *Cforeign*) is released from *Bhome* to *R*.
 
 ## Validator Selection Criteria
-Through the choice of a BFT consensus mechanism with validators formed from a set of stakeholders determined by depositing stakes in the bridge staking contracts, we are able to get a secure consensus with an infrequently changing and modest number of validators. 
+Through the choice of a BFT consensus mechanism with validators formed from a set of stakeholders determined by depositing stakes in the bridge staking contracts, we are able to get a secure consensus with an infrequently changing and modest number of validators.
 
 The staking contract resides on the home chain. Any validators that deposits the stake will become a validator in the next block. Similarly any valiator that withdraws from the contract will have their valdiator status revoked in the following block.
 
@@ -69,19 +69,24 @@ The staking contract resides on the home chain. Any validators that deposits the
 Any transfer requests with approval from *N/2 + 1* validators are finalized. This process continues indefinitely unless *N/2* or more validators become unresponsive, in which case the bridge halts.
 
 ## Security Assumptions
-The bridge is secure as long as the attacker controls less than 51% of the validator pool. 
+The bridge is secure as long as the attacker controls less than 51% of the validator pool.
 
 ## Rewarding and Slashing
 Validators are incentivized to stay online and contribute to the bridge's security by relaying transfer requests for transfer fee rewards. For each relayed transfer message, the relaying validator earn a portion of the corresponding transfer fee. At the same time, to prevent validators from going offline without revoking their validator status (i.e withdraw their stake), a slashing mechanism is put in place. If a validator fails to perform the relay for a transfer message, he will get slashed a portion of his deposited stake.
+
 - how to proof validator missing tx
 
-## Protocol Interface
-The Home Bridge implemention (e.g Ethereum side) will follow the interface of:
-- `transferToForeign(bytes homeTokenAddress, address recipient, uint amount)`
-
 ## Home Bridge Implementation
+The home bridge will be written in Solidity and ran on EVM, the implemention of which would closely ressemble that of Parity Bridge <here>.
+
+The home bridge will follow the following interface:
+- `transferToForeign(bytes homeTokenAddress, address recipient, uint amount)`
+- `TransferToForeign(...)`
+- `TransferFromForeign(...)`
+
+The HomeToken (pegged token used on home chain to represent foreign token) will be a Mintable and Burnable token <openzeppelin>. This allows the token to be burned on transfer outs (to foreign), and minting of new tokens to recipient on transfer in (from foreign), keeping the total balance of the token supply static.
+
 - bridge contracts
-- pegged token contract, erc827, burnable, mintable, reference openzeppelin
 
 ## Foreign Bridge Implementation for EVM Based Chains
 The Foreign bridge can be implemented via smart contracts in Solidity. Using EVENTs, validators can efficiently be notified of incoming transfer requests from both side of the bridge. Messages relayed by the validators into the bridge contracts are signed with elliptic curve digital signature (ECDSA) and validated on-chain using *ecrecover*.
