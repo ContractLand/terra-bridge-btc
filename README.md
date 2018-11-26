@@ -88,10 +88,10 @@ The bridge is secure as long as the attacker controls less than 51% of the valid
 ## Rewarding and Slashing
 Validators are incentivized to stay online and contribute to the bridge's security by relaying transfer requests for transfer fee rewards. For each relayed transfer message, the relaying validator earn a portion of the corresponding transfer fee. At the same time, to prevent validators from going offline without revoking their validator status (i.e withdraw their stake), a slashing mechanism is put in place. If a validator fails to perform the relay for a transfer message, he will get slashed a portion of his deposited stake.
 
-- how to proof validator missing tx
 - how fee works
   - pooled fee address for Bitcoin
   - distributed fee for Ethereum
+- how to proof validator missing tx
 
 ## Home (Ethereum) Bridge Implementation
 The home bridge will be written in Solidity and ran on EVM, the implemention of which would closely ressemble that of Parity Bridge.
