@@ -44,27 +44,27 @@ The bridge is a two way pegging mechanism that works through a rotation validato
 
 The bridge contracts must be able to accepts and lock funds, verifies cryptographic signature of incoming cross-chain transfer transactions, and release token to user address on successful transfers. The relay of messages between the two bridges on different chains happen in a byzantine fault tolerant way by the bridge validators.
 
-Home -> Foreign Transfer Flow:
-1. User deposits BTC to the foreign-bridge. The transaction contains metadata for validators to relay the transfer:
+Foreign -> Home Transfer Flow:
+1. User deposits BTC into the foreign-bridge. The transaction contains metadata for validators to relay the transfer:
   - *T* - transfer amount
   - *R* - recipient address on home
 3. Validators (1 to N) queries and find new incoming transactions on foreign-bridge and send message to home-bridge to relay transfer with the following parameters:
   - *R* - recipient address on home.
   - *T* - transfer amount
   - *TX* - hash of transfer transaction on foreign
-  - *SIG* - validator signature of this message
+  - *SIG* - validator signature of the hash of this message
 4. The home bridge receives the incoming message, verifies validator signature and keeps track of the signatures collected from validators. When more than N/2 validator signatures are collected for a given *TX* then *T* amount BTCT (pegged version of BTC on Ethereum in the form of token) is transferred to recipient.
 
-Foreign -> Home Transfer Flow:
-1. User deposits BTCT to home-bridge. The transaction contains metadata for validators to relay the transfer:
+Home -> Foreign Transfer Flow:
+1. User deposits BTCT into home-bridge. The transaction contains metadata for validators to relay the transfer:
   - *T* - transfer amount
   - *R* - recipient address on foreign
 2. Validators (1 to N) listens for events and find new incoming transaction on home-bridge and send message to home-bridge to collect signatures approving the transfer with the following parameters:
   - *R* - recipient address on foreign.
   - *T* - transfer amount
-  - *TX* - hash of transfer transaction on foreign
+  - *TX* - hash of transfer transaction on home
   - *SIG* - validator signature of this message
-3. Once enough signatures are collected (N/2 + 1), home-bridge emits event to inform validators the transfer has been fully approved. The last validator to submit the transfer transaction to foreign-bridge.
+3. Once enough signatures are collected (N/2 + 1) and verified, home-bridge emits event to inform validators the transfer has been fully approved. The last validator to submit the transfer transaction to foreign-bridge.
 4. The foreign bridge receives the incoming transfer request and *T* amount BTC is transferred to recipient.
 
 ### Number of Transactions for Transfer
@@ -88,23 +88,29 @@ The bridge is secure as long as the attacker controls less than 51% of the valid
 ## Rewarding and Slashing
 Validators are incentivized to stay online and contribute to the bridge's security by relaying transfer requests for transfer fee rewards. For each relayed transfer message, the relaying validator earn a portion of the corresponding transfer fee. At the same time, to prevent validators from going offline without revoking their validator status (i.e withdraw their stake), a slashing mechanism is put in place. If a validator fails to perform the relay for a transfer message, he will get slashed a portion of his deposited stake.
 
-- how fee works
+TODO:
+- how fee works (need payment transferring both ways)
   - pooled fee address for Bitcoin
   - distributed fee for Ethereum
-- how to proof validator missing tx
+- how to proof validator missing tx for slashing
 
 ## Home (Ethereum) Bridge Implementation
 The home bridge will be written in Solidity and ran on EVM, the implemention of which would closely ressemble that of Parity Bridge.
 
 The home bridge will have the following interface:
 - `transferToForeign(address recipient, uint amount)`
-- `event TransferToForeign (address recipient, uint256 value)`
-- `event TransferFromForeign (address recipient, uint256 value, bytes32 transactionHash);`
+
+events:
+- `TransferToForeign (address recipient, uint256 value)`
+- `TransferFromForeign (address recipient, uint256 value, bytes32 transactionHash);`
 
 Apps or contract could call `transferToForeign` for making cross-chain transfers, and listen on `TransferToForeign` and `TransferFromForeign` for transfer results.
 
+### Home Token
 The pegged token used on home chain to represent foreign token aka HomeToken will be a [Mintable](https://github.com/OpenZeppelin/openzeppelin-solidity/blob/v1.12.0/contracts/token/ERC20/MintableToken.sol) and [Burnable](https://github.com/OpenZeppelin/openzeppelin-solidity/blob/v1.12.0/contracts/token/ERC20/BurnableToken.sol) ERC20 token. The mintable and burnable properties or the token allows easy management of the pegged token. It can be transferred to the home bridge and destoryed on transfer outs (to foreign), and created and sent to recipient on transfer ins (from foreign).
 
+### Verifying Bitcoin Signature on Ethereum
+When the home bridge receives `transferFromForeign` requests from bridge validators, the bridge contract needs to be able to verify
 - home bridge will need to verify validator signatures, store past tx messages, and perform token transfers.
 - validating btc signature on ethereum
 
@@ -119,9 +125,13 @@ It follows that the length of all public keys together plus the number of public
 
 This of course reduces the total amount of bonds that could be deducted in reparations should the validators behave illegally, however this is a graceful degradation, simply setting an upper limit of the amount of funds that can securely run between the two networks (or indeed, on the % losses should an attack from the validators succeed).
 
-- bridge Implementation
--
-* choosing of output and achieving consensus on it
-    * todo
-* how to relay the recipient address
-    * https://github.com/KiriKiri/terrabridge-design
+### Multisig Implementation
+- segwit
+- P2WSH
+
+To send transfer, users could just send BTC to the multisig address.
+
+### Achieving Consensus on Ouput Tx for Multisig
+
+### Relaying Recipient Address in Bitcoin Transation Meta Data
+  * https://github.com/KiriKiri/terrabridge-design
