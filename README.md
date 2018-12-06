@@ -24,7 +24,7 @@ Our goals for the design of the bridge are:
 
   - **Standardized Interface**: The bridge should follow a standardized interface for easy integration purposes.
 
-  - **Permission-less**: The bridge should function under a non-authority based security model.
+  - **Permission-less**: The bridge should function under a decentralized security model.
 
 ## Bridge Design
 
@@ -91,10 +91,8 @@ The bridge is secure as long as the attacker controls less than 51% of the valid
 Validators are incentivized to stay online and contribute to the bridge's security by relaying transfer requests for transfer fee rewards. For each relayed transfer message, the relaying validator earn a portion of the corresponding transfer fee. At the same time, to prevent validators from going offline without revoking their validator status (i.e withdraw their stake), a slashing mechanism is put in place. If a validator fails to perform the relay for a transfer message, he will get slashed a portion of his deposited stake.
 
 TODO:
-- how fee works (need payment transferring both ways)
-  - pooled fee address for Bitcoin
-  - distributed fee for Ethereum
-- how to proof validator missing tx for slashing
+- fee distribution mechanism for bitcoin
+- merkle proof mechanism for slashing validators
 
 ## Home (Ethereum) Bridge Implementation
 The home bridge will be written in Solidity and ran on EVM.
@@ -106,48 +104,50 @@ Events:
 - `TransferToForeign (string recipient, uint256 value)`
 
 ### Transferring Funds
-- Dapps or contracts could call the function `transferToForeign` to withdraw their BTC from home-bridge to the provided BTC address, and listen TransferToForeign for transfer results.
+Dapps or contracts could call the function `transferToForeign` to withdraw their BTC from home-bridge to the provided BTC address, and listen TransferToForeign for transfer results.
 
 ### Home Token
 The pegged token used on home chain to represent foreign token aka HomeToken will be a [Mintable](https://github.com/OpenZeppelin/openzeppelin-solidity/blob/v1.12.0/contracts/token/ERC20/MintableToken.sol) and [Burnable](https://github.com/OpenZeppelin/openzeppelin-solidity/blob/v1.12.0/contracts/token/ERC20/BurnableToken.sol) ERC20 token. The mintable and burnable properties or the token allows easy management of the pegged token. It can be transferred to the home bridge and destoryed on transfer outs (to foreign), and created and sent to recipient on transfer ins (from foreign).
 
 ### Selecting output that could be spent to transfer BTC from foreign-bridge
-Transfer funds in bitcoin terms is called: spending of output. In our case, output - is one of the bitcoin transactions that has output pointing to the foreign-bridge. To send money to the recipient, validators must agree on the transaction outputs to be spent and sign them. These signatures are called witnesses and must be pushed to the home-bridge by calling `submitSignature(message, witness)`. As home-bridge keeps track of all incoming and outcoming transactions on the foreign-bridge then it can determine the output that could be spent for the given message. 
-- Message is a concatenation of next variables: [recipient, value, transactionHash]. We need it as the identifier of withdrawal request. 
-- Transaction hash is of transaction where `transferToForeign` was called by user. 
+Transfer funds in bitcoin terms is called: spending of output. In our case, output - is one of the bitcoin transactions that has output pointing to the foreign-bridge. To send money to the recipient, validators must agree on the transaction outputs to be spent and sign them. These signatures are called witnesses and must be pushed to the home-bridge by calling `submitSignature(message, witness)`. As home-bridge keeps track of all incoming and outcoming transfer transctions on the foreign-bridge, it can then determine the output that could be used to spend for the given transfer message.
+- `message` is needed as the identifier of withdrawal request. It consists of the following variables:
+  - `recipient`: recipient address
+  - `value`: transfer value
+  - `transactionHash`: transaction where `transferToForeign` was called by user.
 
 ### How to create witness
-To get the witness validator must create a transaction with next params:
+To get the witness validator must create a transaction with the following params:
 - inputs is an array:
 ```
   [
-      {
-          'txid': txOutput['txid'],
-          'vout': txOutput['vout']
-      }
+    {
+        'txid': txOutput['txid'],
+        'vout': txOutput['vout']
+    }
   ]
 ```
 - outputs is an array:
 ```
-[
-  {
-      recipientAddress: amountToSend
-  },
-  {
-      foreignBridgeAddress: change
-  },
-  {
-      rewardsMultisigAddress: validatorReward
-  }
-]
+  [
+    {
+        recipientAddress: amountToSend
+    },
+    {
+        foreignBridgeAddress: change
+    },
+    {
+        rewardsMultisigAddress: validatorReward
+    }
+  ]
 ```
 
-One of the possible methods to create the unsigned transaction is execute bitcoind rpc method `createrawtransaction(inputs, outputs)`. 
-Then this transaction must be signed with validator's private key. Possible method of signing the traqnsaction is using bitcoind rpc method `signrawtransactionwithkey(unsigned, [validatorPrivateKey], prevTxs)`. The `prevTxs` is an array of transactions that outputs will be spent. The `signrawtransaction` returns transaction with witness in it. This witness must be submitted in `submitSignature(message, witness)` in home-bridge. 
+One of the possible methods to create the unsigned transaction is execute bitcoind rpc method `createrawtransaction(inputs, outputs)`.
+Then this transaction must be signed with validator's private key. Possible method of signing the traqnsaction is using bitcoind rpc method `signrawtransactionwithkey(unsigned, [validatorPrivateKey], prevTxs)`. The `prevTxs` is an array of transactions that outputs will be spent. The `signrawtransaction` returns transaction with witness in it. This witness must be submitted in `submitSignature(message, witness)` in home-bridge.
 
 
 ### Verifying Bitcoin Signature on Ethereum
-As part of the `transferToForeign` request, the bridge contract needs to be able to verify the Bitcoin transaction signatures (witnesses) collected from bridge validators. Fortunately, we can do this with `ecrecover` function in Solidity since both Ethereum and Bitcoin use the same Elliptic Curve Digital Signature Algorithm (ECDSA) for signing. `ecrecover` returns ethereum address, but provided signatures are created via bitcoin, thus to verify signature we need to compare ethereum address returned by `ecrecover` and bitcoin address of validator. There is a huge difference between bitcoin and ethereum addresses and to make a verification home-bridge stores validators public keys to derive ethereum address from. 
+As part of the `transferToForeign` request, the bridge contract needs to be able to verify the Bitcoin transaction signatures (witnesses) collected from bridge validators. Fortunately, we can do this with `ecrecover` function in Solidity since both Ethereum and Bitcoin use the same Elliptic Curve Digital Signature Algorithm (ECDSA) for signing. `ecrecover` returns ethereum address, but provided signatures are created via bitcoin, thus to verify signature we need to compare ethereum address returned by `ecrecover` and bitcoin address of validator. There is a huge difference between bitcoin and ethereum addresses. In order to make a verification, home-bridge needs to store validator public keys and derive ethereum address from it.
 
 Other preparation that needs to be done to pass witness to `ecrecover` is splitting it to 3 parts (v,r,s) as described in the [Solidity Documentation](https://solidity.readthedocs.io/en/v0.4.24/miscellaneous.html#global-variables):
 
@@ -160,7 +160,7 @@ function parseWitness(witness) {
   };
 }
 ```
-Bitcoin witness doesn't contain the `v` scalar. `v` is needed to identify the part of the elliptic curve the public key must be recovered from, thus we can just sort out 2 possible variants: `v = 0x1B or v = 0x1C`. 
+Bitcoin witness doesn't contain the `v` scalar. `v` is needed to identify the part of the elliptic curve the public key must be recovered from, thus we can just sort out 2 possible variants: `v = 0x1B or v = 0x1C`.
 
 ## Foreign (Bitcoin) Bridge Implementation
 The implementation of the foreign bridge on Bitcoin will be achieved using a multisignature address. We can achieve this using a M-of-N P2SH multisignature address according to [BIP-13](https://github.com/bitcoin/bips/blob/master/bip-0013.mediawiki). The Bitcoin reference implementation has validations rules limiting the P2SH redeem script to be at most 520 bytes, meaning that the length of all public keys together plus the number of public keys must not this byte limit. For compressed public keys, this means up to N=15.
@@ -185,10 +185,6 @@ OP_SWAP <pubkey67> OP_CHECKSIG OP_ADD
 Users could use any bitcoin wallet that supports Segwit to transfer BTC to the multisig address.
 
 ### Validator Rotation
-The challenge with Bitcoin is how the deposits can be securely controlled from a rotating validator set. In curent implementation we have the administrator that can initiate transfer of funds in current multisig wallet to the new one. And to make this transfer (N/2 + 1) old validators must provide their signatures. 
+The challenge with Bitcoin is how the deposits can be securely controlled from a rotating validator set. This is done by reaching consensus amongst the existing validators to create and transfer funds to a new multisign completely. When a new validator joins or an existing validator exits. A new multisig is created. The existing validator set than reaches consensus (N/2 + 1) to transfer funds to the new multisig address.
 
-Since the ultimate security of the deposits rests with a number of bonded validators, one other option is to reduce the multi-signature key-holders to only a heavily bonded subset of the total validators.
-In future we can support multiple bridge-pairs for 1 currency.
-
-### Unlocking funds on multisig when > N/2 + 1 validators stopped working
-Our foreign-vridge multisig wallet has a lock script (OP_CHECKLOCKTIMEVERIFY): in case that there are no transactions for 30 days, 1 authority receives a possibility to move funds from the wallet. 
+In the future we could also support multiple bridge-pairs for a single currency for additional security.
