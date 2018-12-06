@@ -67,7 +67,7 @@ Home -> Foreign Transfer Flow:
 2. Validators (1 to N) listens for events and find new incoming transaction on home-bridge and send message to home-bridge to collect signatures approving the transfer with the following parameters:
   - *R* - recipient address on foreign.
   - *T* - transfer amount
-  - *SIG* - validator signature of transfer transaction
+  - *SIG* - validator's signature (witness) that will be used to unlock funds on the foreign-bridge
 3. Once enough signatures are collected (N/2 + 1) and verified, home-bridge emits event to inform validators the transfer has been fully approved. The last validator to submit the transfer transaction to foreign-bridge along with the collected validator signatures.
 4. The foreign bridge receives the incoming transfer request, verifies the collected signatures and *T* amount BTC is transferred to recipient.
 
@@ -100,20 +100,51 @@ TODO:
 The home bridge will be written in Solidity and ran on EVM.
 
 The home bridge will have the following interface:
-- `transferToForeign(address recipient, uint amount)`
+- `transferToForeign(string recipient, uint amount)`
 
 Events:
-- `TransferToForeign (address recipient, uint256 value)`
-- `TransferFromForeign (address recipient, uint256 value, bytes32 transactionHash);`
+- `TransferToForeign (string recipient, uint256 value)`
 
 ### Transferring Funds
-Dapps or contract could call the `payable` function of `transferToForeign` for making cross-chain transfers, and listen on `TransferToForeign` and `TransferFromForeign` for transfer results.
+- Dapps or contracts could call the function `transferToForeign` to withdraw their BTC from home-bridge to the provided BTC address, and listen TransferToForeign for transfer results.
 
 ### Home Token
 The pegged token used on home chain to represent foreign token aka HomeToken will be a [Mintable](https://github.com/OpenZeppelin/openzeppelin-solidity/blob/v1.12.0/contracts/token/ERC20/MintableToken.sol) and [Burnable](https://github.com/OpenZeppelin/openzeppelin-solidity/blob/v1.12.0/contracts/token/ERC20/BurnableToken.sol) ERC20 token. The mintable and burnable properties or the token allows easy management of the pegged token. It can be transferred to the home bridge and destoryed on transfer outs (to foreign), and created and sent to recipient on transfer ins (from foreign).
 
+### Selecting output that could be spent to transfer BTC from foreign-bridge
+Transfer funds in bitcoin terms is called: spending of output. In our case, output - is one of the bitcoin transactions that has output pointing to the foreign-bridge. To send money to the recipient, validators must agree on the transaction outputs to be spent and sign them. These signatures are called witnesses and must be pushed to the home-bridge by calling `submitSignature(message, witness)`. As home-bridge keeps track of all incoming and outcoming transactions on the foreign-bridge then it can determine the output that could be spent for the given message. 
+- Message is a concatenation of next variables: [recipient, value, transactionHash]. We need it as the identifier of withdrawal request. 
+- Transaction hash is of transaction where `transferToForeign` was called by user. 
+
+### How to create witness
+To get the witness validator must create a transaction with next params:
+- inputs is an array:
+`
+  [
+      {
+          'txid': txOutput['txid'],
+          'vout': txOutput['vout']
+      }
+  ]
+`
+- outputs is an array:
+`
+[
+  {
+      recipientAddress: amountToSend
+  },
+  {
+      foreignBridgeAddress: change
+  }
+]
+`
+
+One of the possible methods to create the unsigned transaction is execute bitcoind rpc method `createrawtransaction(inputs, outputs)`. 
+Then this transaction must be signed with validator's private key. Possible method of signing the traqnsaction is using bitcoind rpc method `signrawtransactionwithkey(unsigned, [validatorPrivateKey], prevTxs)`. The `prevTxs` is an array of transactions that outputs will be spent. The `signrawtransaction` returns transaction with witness in it. This witness must be submitted in `submitSignature(message, witness)` in home-bridge. 
+
+
 ### Verifying Bitcoin Signature on Ethereum
-As part of the `transferToForeign` request, the bridge contract needs to be able to verify the Bitcoin transaction signatures collected from  bridge validators. Fortunately we can do this with `ecrecover` function in Solidity since both Ethereum and Bitcoin use the same Elliptic Curve Digital Signature Algorithm (ECDSA) for signing.
+As part of the `transferToForeign` request, the bridge contract needs to be able to verify the Bitcoin transaction signatures (witnesses) collected from bridge validators. Fortunately, we can do this with `ecrecover` function in Solidity since both Ethereum and Bitcoin use the same Elliptic Curve Digital Signature Algorithm (ECDSA) for signing. `ecrecover` returns ethereum address, but provided signatures are created via bitcoin, thus to verify signature we need to compare ethereum address returned by `ecrecover` and bitcoin address of validator. There is a huge difference between bitcoin and ethereum addresses and to make a verification home-bridge stores validators public keys to derive ethereum address from. 
 
 ## Foreign (Bitcoin) Bridge Implementation
 The implementation of the foreign bridge on Bitcoin will be achieved using a multisignature address. We can achieve this using a M-of-N P2SH multisignature address according to [BIP-13](https://github.com/bitcoin/bips/blob/master/bip-0013.mediawiki). The Bitcoin reference implementation has validations rules limiting the P2SH redeem script to be at most 520 bytes, meaning that the length of all public keys together plus the number of public keys must not this byte limit. For compressed public keys, this means up to N=15.
@@ -135,7 +166,7 @@ OP_SWAP <pubkey67> OP_CHECKSIG OP_ADD
 ```
 
 ### Transferring Funds
-To send transfer, users could just send BTC to the multisig address.
+Users could use any bitcoin wallet that supports Segwit to transfer BTC to the multisig address.
 
 ### Validator Rotation
 The challenge with Bitcoin is how the deposits can be securely controlled from a rotating validator set.
