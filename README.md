@@ -119,25 +119,28 @@ Transfer funds in bitcoin terms is called: spending of output. In our case, outp
 ### How to create witness
 To get the witness validator must create a transaction with next params:
 - inputs is an array:
-`
+```
   [
       {
           'txid': txOutput['txid'],
           'vout': txOutput['vout']
       }
   ]
-`
+```
 - outputs is an array:
-`
+```
 [
   {
       recipientAddress: amountToSend
   },
   {
       foreignBridgeAddress: change
+  },
+  {
+      rewardsMultisigAddress: validatorReward
   }
 ]
-`
+```
 
 One of the possible methods to create the unsigned transaction is execute bitcoind rpc method `createrawtransaction(inputs, outputs)`. 
 Then this transaction must be signed with validator's private key. Possible method of signing the traqnsaction is using bitcoind rpc method `signrawtransactionwithkey(unsigned, [validatorPrivateKey], prevTxs)`. The `prevTxs` is an array of transactions that outputs will be spent. The `signrawtransaction` returns transaction with witness in it. This witness must be submitted in `submitSignature(message, witness)` in home-bridge. 
@@ -145,6 +148,19 @@ Then this transaction must be signed with validator's private key. Possible meth
 
 ### Verifying Bitcoin Signature on Ethereum
 As part of the `transferToForeign` request, the bridge contract needs to be able to verify the Bitcoin transaction signatures (witnesses) collected from bridge validators. Fortunately, we can do this with `ecrecover` function in Solidity since both Ethereum and Bitcoin use the same Elliptic Curve Digital Signature Algorithm (ECDSA) for signing. `ecrecover` returns ethereum address, but provided signatures are created via bitcoin, thus to verify signature we need to compare ethereum address returned by `ecrecover` and bitcoin address of validator. There is a huge difference between bitcoin and ethereum addresses and to make a verification home-bridge stores validators public keys to derive ethereum address from. 
+
+Other preparation that needs to be done to pass witness to `ecrecover` is splitting it to 3 parts (v,r,s) as described in the [Solidity Documentation](https://solidity.readthedocs.io/en/v0.4.24/miscellaneous.html#global-variables):
+
+```js
+function parseWitness(witness) {
+  signature = bip66.decode(witness);
+  return {
+    r: signature.slice(0, 32),
+    s: signature.slice(32)
+  };
+}
+```
+Bitcoin witness doesn't contain the `v` scalar. `v` is needed to identify the part of the elliptic curve the public key must be recovered from, thus we can just sort out 2 possible variants: `v = 0x1B or v = 0x1C`. 
 
 ## Foreign (Bitcoin) Bridge Implementation
 The implementation of the foreign bridge on Bitcoin will be achieved using a multisignature address. We can achieve this using a M-of-N P2SH multisignature address according to [BIP-13](https://github.com/bitcoin/bips/blob/master/bip-0013.mediawiki). The Bitcoin reference implementation has validations rules limiting the P2SH redeem script to be at most 520 bytes, meaning that the length of all public keys together plus the number of public keys must not this byte limit. For compressed public keys, this means up to N=15.
@@ -169,12 +185,10 @@ OP_SWAP <pubkey67> OP_CHECKSIG OP_ADD
 Users could use any bitcoin wallet that supports Segwit to transfer BTC to the multisig address.
 
 ### Validator Rotation
-The challenge with Bitcoin is how the deposits can be securely controlled from a rotating validator set.
-
-TODO:
-- Create new multisig and transfer fund?
+The challenge with Bitcoin is how the deposits can be securely controlled from a rotating validator set. In curent implementation we have the administrator that can initiate transfer of funds in current multisig wallet to the new one. And to make this transfer (N/2 + 1) old validators must provide their signatures. 
 
 Since the ultimate security of the deposits rests with a number of bonded validators, one other option is to reduce the multi-signature key-holders to only a heavily bonded subset of the total validators.
+In future we can support multiple bridge-pairs for 1 currency.
 
-### Achieving Consensus on Ouput Tx for Multisig Redemption
-TODO
+### Unlocking funds on multisig when > N/2 + 1 validators stopped working
+Our foreign-vridge multisig wallet has a lock script (OP_CHECKLOCKTIMEVERIFY): in case that there are no transactions for 30 days, 1 authority receives a possibility to move funds from the wallet. 
