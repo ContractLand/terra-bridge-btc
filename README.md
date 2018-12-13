@@ -90,9 +90,10 @@ The bridge is secure as long as the attacker controls less than 51% of the valid
 ## Rewarding and Slashing
 Validators are incentivized to stay online and contribute to the bridge's security by relaying transfer requests for transfer fee rewards. For each relayed transfer message, the relaying validator earn a portion of the corresponding transfer fee. At the same time, to prevent validators from going offline without revoking their validator status (i.e withdraw their stake), a slashing mechanism is put in place. If a validator fails to perform the relay for a transfer message, he will get slashed a portion of his deposited stake.
 
-TODO:
-- fee distribution mechanism for bitcoin
-- merkle proof mechanism for slashing validators
+### Slashing Condition
+The cryptoeconomic security model of the bridge is based on the honest behaviour of the majority (N/2 + 1) of the validators. This also sets the basis for the slashing condition. Given that we collect validator signatures for transfer in both directions of the bridge, we are able to identify on the `home-bridge` which validator(s) have missed to participate in the relay of a particular cross-chain transfer. A simple slashing condition could be to punish validators that have failed to submit signatures for any transfers that has already collected more than N/2 + 1 signatures after some unit time of T (could be block number, transfer number, etc).
+
+This means we do not attempt to differentiate between honest or malicious validators from a slashing perspective, but assumes that majority of the validators are honest. Since the default behaviour of validators is to relay all transfers, it will be economically desirable for validators to stay online and not deviate from the default responsibilities.
 
 ## Home (Ethereum) Bridge Implementation
 The home bridge will be written in Solidity and ran on EVM.
@@ -105,7 +106,7 @@ Events:
 - `TransferToForeign (string recipient, uint256 value, bytes32 uniqueId)`
 - `TransferFromForeign(address recipient, uint256 value, bytes32 txId)`
 - `SignedForTransferFromForeign(address indexed signer, bytes32 txId)`
-    
+
 ### Transferring Funds
 - Dapps or contracts could call the function `transferToForeign` to withdraw their BTC from home-bridge to the provided BTC address, and listen TransferToForeign for transfer results.
 
@@ -113,19 +114,19 @@ Events:
 - The pegged token used on home chain to represent foreign token aka HomeToken will be a [Mintable](https://github.com/OpenZeppelin/openzeppelin-solidity/blob/v1.12.0/contracts/token/ERC20/MintableToken.sol) and [Burnable](https://github.com/OpenZeppelin/openzeppelin-solidity/blob/v1.12.0/contracts/token/ERC20/BurnableToken.sol) ERC20 token. The mintable and burnable properties or the token allows easy management of the pegged token. It can be transferred to the home bridge and destoryed on transfer outs (to foreign), and created and sent to recipient on transfer ins (from foreign).
 
 ### Selecting outputs that could be spent to transfer BTC from foreign-bridge
-- Transfer funds in bitcoin terms is called: spending of output. In our case, output - is one of the bitcoin transactions that has output pointing to the foreign-bridge. To send money to the recipient, validators must agree on the transaction outputs to be spent and sign them. As home-bridge keeps track of all incoming and outcoming transactions on the foreign-bridge then it can determine the outputs that could be spent for the given message. 
+- Transfer funds in bitcoin terms is called: spending of output. In our case, output - is one of the bitcoin transactions that has output pointing to the foreign-bridge. To send money to the recipient, validators must agree on the transaction outputs to be spent and sign them. As home-bridge keeps track of all incoming and outcoming transactions on the foreign-bridge then it can determine the outputs that could be spent for the given message.
 
 ### Signign outputs and verifying signature
-- These outputs will be combined in the transaction and signed to get witnesses and must be pushed to the home-bridge by calling `submitSignature(bytes witness, bytes rawTx, bytes32 requestId)`. 
+- These outputs will be combined in the transaction and signed to get witnesses and must be pushed to the home-bridge by calling `submitSignature(bytes witness, bytes rawTx, bytes32 requestId)`.
   - `rawTx` is raw unsigned transaction provided by validator that is used to create a signature. [See it's structure](https://github.com/bitcoinjs/bitcoinjs-lib/blob/f57a73496d5a1dec54dffdb3936d5dd63a15b4fe/src/transaction.js#L319)
   ``` signature_message
-	(version) = 2 
+	(version) = 2
 	(hashPrevouts) => hash256(txIns.hash + txIns.index)
 	(hashSequence) => hash256(txIns.sequence)
 	(input.hash) txId in little-endian
-	(input.index) 
+	(input.index)
 	(prevOutScript) multisig redeem script
-	(value) 
+	(value)
 	(input.sequence) default sequence 0xffffffff
 	(hashOutputs) => hash256(out.value + out.script)
 	(this.locktime) => 0
@@ -160,7 +161,7 @@ To get the witness validator must create a transaction with the following params
   ]
 ```
 
-One of the possible methods to create the unsigned transaction is execute bitcoind rpc method `createrawtransaction(inputs, outputs)`. 
+One of the possible methods to create the unsigned transaction is execute bitcoind rpc method `createrawtransaction(inputs, outputs)`.
 Then this transaction must be signed with validator's private key. Possible method of signing the transaction is using bitcoind rpc method `signrawtransactionwithkey(unsigned, [validatorPrivateKey], prevTxs)`. The `prevTxs` is an array of transactions that outputs will be spent. The `signrawtransaction` returns transaction with witness in it.
 
 ### Verifying Bitcoin Signature on Ethereum
